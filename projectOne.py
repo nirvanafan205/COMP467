@@ -6,12 +6,13 @@ operator = ""
 job = ""
 notes = ""
 
-# Open the file in read mode
+# Open the input file in read mode
 with open('Xytech.txt', 'r') as file:
     data = file.readlines()
 
 # Parsing data line by line
 capture_notes = False  # Flag to capture notes
+
 for line in data:
     line = line.strip()
 
@@ -19,12 +20,16 @@ for line in data:
     if line.startswith("Producer:"):
         producer = line[len("Producer:"):].strip()
 
+    # strip takes away Operator: and leaves the name
+    # same thing with the Producer and job
     elif line.startswith("Operator:"):
         operator = line[len("Operator:"):].strip()
 
     elif line.startswith("Job:"):
         job = line[len("Job:"):].strip()
 
+    # when line starts with Notes: or Notes :
+    # it will start recording
     elif line.startswith("Notes:") or line.startswith("Notes :"):
         # Start capturing notes
         capture_notes = True
@@ -34,24 +39,20 @@ for line in data:
         # Capture all lines after "Notes:" (including leading spaces)
         notes.append(line)
 
-# Join the lines of the "Notes" section into a single string
+# makes notes a single string
 notes = ' '.join(notes).strip()
 
 # Create a dictionary to store data
 data_dict = {
-        "Producer": producer,
-        "Operator": operator,
-        "Job": job,
-        "Notes": notes,
-        }
+    "Producer": producer,
+    "Operator": operator,
+    "Job": job,
+    "Notes": notes,
+}
 
 # Export data to CSV file
 with open('output.csv', 'w', newline='') as csv_file:
-    fieldnames = ["Producer", "Operator", "Job", "Notes"]
-    writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-
-    # Write header
-    writer.writeheader()
+    writer = csv.DictWriter(csv_file, fieldnames=data_dict.keys())
 
     # Write data
     writer.writerow(data_dict)
