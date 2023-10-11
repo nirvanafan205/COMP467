@@ -1,45 +1,53 @@
 import csv
 
-# Initialize names of what you need to save
-producer = ""
-operator = ""
-job = ""
-notes = ""
-locations = []
+def find_ranges(numbers):
+    ranges = []
+    start = end = numbers[0]
+    for n in numbers[1:]:
+        if n == end + 1:
+            end = n
+        else:
+            ranges.append((start, end))
+            start = end = n
+    ranges.append((start, end))
+    return [(s, e) for s, e in ranges]
 
-# Open the input file in read mode
+# Parsing data from Xytech file
+def parse_xytech(xytech_data):
+    capture_notes = False
+    parsed_data = {"Notes": []}
+
+    for line in xytech_data:
+        line = line.strip()
+
+        # Save names and such
+        if line.startswith("Producer:"):
+            parsed_data["Producer"] = line[len("Producer:"):].strip()
+        elif line.startswith("Operator:"):
+            parsed_data["Operator"] = line[len("Operator:"):].strip()
+        elif line.startswith("Job:"):
+            parsed_data["Job"] = line[len("Job:"):].strip()
+        elif line.startswith("Notes:") or line.startswith("Notes :"):
+            capture_notes = True
+        elif capture_notes:
+            parsed_data["Notes"].append(line)
+
+    parsed_data["Notes"] = ' '.join(parsed_data["Notes"]).strip()
+    return parsed_data
+
+# Reading Xytech data
 with open('Xytech.txt', 'r') as file:
     xytech_data = file.readlines()
 
-# Parsing data from Xytech file
-capture_notes = False  # Flag to capture notes
+parsed_xytech = parse_xytech(xytech_data)
 
-for line in xytech_data:
-    line = line.strip()
+# Initialize locations
+locations = []
 
-    # Save names and such
-    if line.startswith("Producer:"):
-        producer = line[len("Producer:"):].strip()
-    elif line.startswith("Operator:"):
-        operator = line[len("Operator:"):].strip()
-    elif line.startswith("Job:"):
-        job = line[len("Job:"):].strip()
-    elif line.startswith("Notes:") or line.startswith("Notes :"):
-        # Start capturing notes
-        capture_notes = True
-        notes = []  # Initialize notes as a list
-    elif capture_notes:
-        # Capture all lines after "Notes:" (including leading spaces)
-        notes.append(line)
-
-# Makes notes a single string
-notes = ' '.join(notes).strip()
-
-# Open the Baselight file in read mode
+# Reading Baselight data
 with open('Baselight_export.txt', 'r') as file:
     baselight_data = file.readlines()
 
-# Initialize a variable to store the current location and numbers
 current_location = ""
 current_numbers = []
 
@@ -48,32 +56,31 @@ for line in baselight_data:
     line = line.strip()
     
     if line.startswith("/baselightfilesystem1"):
-        # Store the current location and numbers
-        if current_location:
-            locations.append([current_location, ' '.join(current_numbers)])
+        if current_location and current_numbers:
+            locations.extend([[current_location, s_e] for s_e in find_ranges(current_numbers)])
         
-        # Set the current location
-        current_location = line.replace("/baselightfilesystem1", "/hpsans13/production")
-        current_numbers = []
+        path, *number_strings = line.split()
+        current_location = path.replace("/baselightfilesystem1", "/hpsans13/production")
+        current_numbers = [int(n) for n in number_strings if n.isnumeric()]
     else:
-        # Append numbers to the current_numbers list
-        current_numbers.extend(line.split())
+        current_numbers.extend([int(n) for n in line.split() if n.isnumeric()])
 
-# Append the last location and numbers
-if current_location:
-    locations.append([current_location, ' '.join(current_numbers)])
+if current_location and current_numbers:
+    locations.extend([[current_location, s_e] for s_e in find_ranges(current_numbers)])
 
 # Export data to CSV file
 with open('output.csv', 'w', newline='') as csv_file:
     writer = csv.writer(csv_file)
 
     # Write line 1 with actual information
-    writer.writerow([producer, operator, job, notes])
+    writer.writerow([parsed_xytech["Producer"], parsed_xytech["Operator"], parsed_xytech["Job"], parsed_xytech["Notes"]])
     # Write empty lines
     writer.writerow([])
     writer.writerow([])
 
-    # Write lines 4 onward with location and numbers in separate cells
-    writer.writerows(locations)
+    # Write lines 4 onward with location and numbers
+    for location, (start, end) in locations:
+        frame_range = f"{start}-{end}" if start != end else f"{start}"
+        writer.writerow([f"{location} {frame_range}"])
 
 print("Data exported to 'output.csv'")
