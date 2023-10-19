@@ -12,15 +12,17 @@ mapping_dict = {
     "reel1/partC/1920x1080": "/hpsans17/production",
 }
 
+# return new path based on pathing
 def find_mapping(path, mappings):
-    path_parts = path.split("/")
-    if len(path_parts) >= 2:
-        check_path = "/".join(path_parts[-2:])
-        for key_path, mapped_path in mappings.items():
-            if check_path in key_path:
-                return mapped_path + "/" + "/".join(path_parts[2:])
+    parts = path.split("/")
+    if len(parts) >= 2:
+        checking = "/".join(parts[-2:])
+        for keyPath, pathMap in mappings.items():
+            if checking in keyPath:
+                return pathMap + "/" + "/".join(parts[2:])
     return path
 
+# returns range
 def range(numbers):
     ranges = []
     start = end = numbers[0]
@@ -34,67 +36,85 @@ def range(numbers):
     ranges.append((start, end))
     return [(s, e) for s, e in ranges]
 
+# read xytech data file
+# get producer, operator, job and notes info
 def parse_xytech(xytech_data):
-    capture_notes = False
-    parsed_data = {"Notes": []}
+    notes = False
+    parseData = {"Notes": []}
 
     for line in xytech_data:
         line = line.strip()
         if line.startswith("Producer:"):
-            parsed_data["Producer"] = line[len("Producer:"):].strip()
+            parseData["Producer"] = line[len("Producer:"):].strip()
 
         elif line.startswith("Operator:"):
-            parsed_data["Operator"] = line[len("Operator:"):].strip()
+            parseData["Operator"] = line[len("Operator:"):].strip()
 
         elif line.startswith("Job:"):
-            parsed_data["Job"] = line[len("Job:"):].strip()
+            parseData["Job"] = line[len("Job:"):].strip()
 
         elif line.startswith("Notes:") or line.startswith("Notes :"):
-            capture_notes = True
+            notes = True
 
-        elif capture_notes:
-            parsed_data["Notes"].append(line)
-    parsed_data["Notes"] = ' '.join(parsed_data["Notes"]).strip()
+        elif notes:
+            parseData["Notes"].append(line)
+    parseData["Notes"] = ' '.join(parseData["Notes"]).strip()
 
-    return parsed_data
+    return parseData
 
+# read data from xytech
+# parse data
+# get info
 with open('Xytech.txt', 'r') as file:
     xytech_data = file.readlines()
 parsed_xytech = parse_xytech(xytech_data)
 
+# store paths and ranges from baselight
 locations = []
 with open('Baselight_export.txt', 'r') as file:
     baselight_data = file.readlines()
 
-current_location = ""
-current_numbers = []
+# track current location
+currLocation = ""
 
+# hold current list of frame numbers
+currNums = []
+
+# loop baselight data
 for line in baselight_data:
-    line = line.strip()
+    line = line.strip() # remove leading and trailing whitespaces
 
+    # check if it starts with specific string 
     if line.startswith("/baselightfilesystem1"):
 
-        if current_location and current_numbers:
-            locations.extend([[current_location, s_e] for s_e in range(current_numbers)])
+        # find range and store it in location
+        if currLocation and currNums:
+            locations.extend([[currLocation, s_e] for s_e in range(currNums)])
         
+        # spllit line, map, and convert nums
         path, *number_strings = line.split()
-        current_location = find_mapping(path, mapping_dict)  # use mapping
-        current_numbers = [int(n) for n in number_strings if n.isnumeric()]
+        currLocation = find_mapping(path, mapping_dict)  # use mapping
+        currNums = [int(n) for n in number_strings if n.isnumeric()]
 
+    # contain additional frame numbers
     else:
-        current_numbers.extend([int(n) for n in line.split() if n.isnumeric()])
+        currNums.extend([int(n) for n in line.split() if n.isnumeric()])
 
-if current_location and current_numbers:
-    locations.extend([[current_location, s_e] for s_e in range(current_numbers)])
+if currLocation and currNums:
+    locations.extend([[currLocation, s_e] for s_e in range(currNums)])
 
+    # opens output.csv for writing 
 with open('output.csv', 'w', newline='') as csv_file:
     writer = csv.writer(csv_file)
     writer.writerow([parsed_xytech["Producer"], parsed_xytech["Operator"], parsed_xytech["Job"], parsed_xytech["Notes"]])
+    # blanks
     writer.writerow([])
     writer.writerow([])
 
+    # for locations and respective ranges
     for location, (start, end) in locations:
         frame_range = f"{start}-{end}" if start != end else f"{start}"
         writer.writerow([f"{location} {frame_range}"])
 
+    # message to show it work
 print("Data exported to 'output.csv'")
