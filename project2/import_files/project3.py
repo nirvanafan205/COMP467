@@ -1,5 +1,7 @@
 import argparse
 import csv
+import io
+from PIL import Image
 import xlsxwriter
 from pymongo import MongoClient
 from moviepy.editor import VideoFileClip
@@ -12,6 +14,10 @@ def frames_to_timecode(frames, frame_rate):
     seconds = int(total_seconds % 60)
     frames = int((total_seconds - int(total_seconds)) * frame_rate)
     return f"{hours:02}:{minutes:02}:{seconds:02}:{frames:02}"
+
+def get_middle_frame(start_frame, end_frame):
+    """Get the middle frame number from a frame range."""
+    return start_frame + (end_frame - start_frame) // 2
 
 # MongoDB connection
 client = MongoClient('mongodb://localhost:27017/')
@@ -57,12 +63,30 @@ for entry in mongo_data:
 
     # Check if the frame range is within the total frames of the video
     if start_frame <= total_frames and end_frame <= total_frames:
+        # Calculate the middle frame for thumbnail
+        middle_frame = get_middle_frame(start_frame, end_frame)
+        
+        # Extract the frame as an image
+        frame_image = video.get_frame(middle_frame / frame_rate)
+        
+        # Convert to PIL image and resize
+        pil_image = Image.fromarray(frame_image)
+        pil_image.thumbnail((96, 74))  # Removed Image.ANTIALIAS
+
+        # Save the image to a bytes buffer
+        img_buffer = io.BytesIO()
+        pil_image.save(img_buffer, format="JPEG")
+        img_buffer.seek(0)
+
+        # Convert frames to timecode
         start_timecode = frames_to_timecode(start_frame, frame_rate)
         end_timecode = frames_to_timecode(end_frame, frame_rate)
-        data.append([location, frame_range, f"{start_timecode} to {end_timecode}"])
+
+        # Append to data along with other information
+        data.append([location, frame_range, f"{start_timecode} to {end_timecode}", img_buffer])
 
 # Define headers
-headers = ["Location", "Frame Range", "Timecode Range"]
+headers = ["Location", "Frame Range", "Timecode Range", "Thumbnail"]
 
 # Choose output format and write data
 output_path = 'output'
@@ -75,10 +99,13 @@ if args.output.lower() == "xlsx":
     for col_num, header in enumerate(headers):
         worksheet.write(0, col_num, header)
 
-    # Write the data
+    # Write the data and add images
     for row_num, row_data in enumerate(data, start=1):
         for col_num, cell_data in enumerate(row_data):
-            worksheet.write(row_num, col_num, cell_data)
+            if col_num < 3:  # Regular data
+                worksheet.write(row_num, col_num, cell_data)
+            else:  # Image data
+                worksheet.insert_image(row_num, col_num, "", {'image_data': cell_data})
 
     workbook.close()
 else:  # Default to CSV
