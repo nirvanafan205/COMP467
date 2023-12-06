@@ -22,13 +22,10 @@ csv_output_path = 'output.csv'
 
 # Initialize argument parser
 parser = argparse.ArgumentParser(description="Export data from MongoDB to CSV and process a video file.")
-
-# Add arguments to the parser
 parser.add_argument("--process", help="Path to video file for processing", type=str)
 args = parser.parse_args()
 
 frame_rate = None
-total_frames = None
 
 # Check if --process argument is provided
 if args.process:
@@ -42,7 +39,6 @@ if args.process:
     print(f"Processing video file: {args.process}")
     print(f"Video duration: {video_duration} seconds")
     print(f"Frame rate: {frame_rate} fps")
-    print(f"Total frames: {total_frames}")
 
 # Fetch data from MongoDB
 mongo_data = collection.find()
@@ -58,7 +54,6 @@ for entry in mongo_data:
     elif frame_range.isdigit():
         start_frame = end_frame = int(frame_range)
     else:
-        print(f"Invalid frame range format for location {location}: {frame_range}")
         continue  # Skip this entry
 
     # Check if the frame range is within the total frames of the video
@@ -69,8 +64,6 @@ for entry in mongo_data:
 
         # Append to csv_data
         csv_data.append((location, frame_range, f"{start_timecode} to {end_timecode}"))
-    else:
-        print(f"Frame range {frame_range} for location {location} is outside the video length")
 
 # Write data to CSV file
 with open(csv_output_path, 'w', newline='') as csv_file:
