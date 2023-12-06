@@ -1,5 +1,6 @@
 import argparse
 import csv
+import xlsxwriter
 from pymongo import MongoClient
 from moviepy.editor import VideoFileClip
 
@@ -17,12 +18,10 @@ client = MongoClient('mongodb://localhost:27017/')
 db = client['magneto']
 collection = db['insertTwo']
 
-# Output CSV file path
-csv_output_path = 'output.csv'
-
 # Initialize argument parser
-parser = argparse.ArgumentParser(description="Export data from MongoDB to CSV and process a video file.")
+parser = argparse.ArgumentParser(description="Export data from MongoDB to CSV/XLSX and process a video file.")
 parser.add_argument("--process", help="Path to video file for processing", type=str)
+parser.add_argument("--output", help="Output file format (csv or xlsx)", type=str, default="csv")
 args = parser.parse_args()
 
 frame_rate = None
@@ -44,7 +43,7 @@ if args.process:
 mongo_data = collection.find()
 
 # Extract relevant fields and calculate timecodes
-csv_data = []
+data = []
 for entry in mongo_data:
     location = entry['Location']
     frame_range = entry['FrameRange']
@@ -58,18 +57,35 @@ for entry in mongo_data:
 
     # Check if the frame range is within the total frames of the video
     if start_frame <= total_frames and end_frame <= total_frames:
-        # Convert frames to timecode
         start_timecode = frames_to_timecode(start_frame, frame_rate)
         end_timecode = frames_to_timecode(end_frame, frame_rate)
+        data.append([location, frame_range, f"{start_timecode} to {end_timecode}"])
 
-        # Append to csv_data
-        csv_data.append((location, frame_range, f"{start_timecode} to {end_timecode}"))
+# Define headers
+headers = ["Location", "Frame Range", "Timecode Range"]
 
-# Write data to CSV file
-with open(csv_output_path, 'w', newline='') as csv_file:
-    csv_writer = csv.writer(csv_file)
+# Choose output format and write data
+output_path = 'output'
+if args.output.lower() == "xlsx":
+    output_path += ".xlsx"
+    workbook = xlsxwriter.Workbook(output_path)
+    worksheet = workbook.add_worksheet()
 
-    # Write data
-    csv_writer.writerows(csv_data)
+    # Write the headers
+    for col_num, header in enumerate(headers):
+        worksheet.write(0, col_num, header)
 
-print(f"Data exported to {csv_output_path}")
+    # Write the data
+    for row_num, row_data in enumerate(data, start=1):
+        for col_num, cell_data in enumerate(row_data):
+            worksheet.write(row_num, col_num, cell_data)
+
+    workbook.close()
+else:  # Default to CSV
+    output_path += ".csv"
+    with open(output_path, 'w', newline='') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(headers)
+        csv_writer.writerows(data)
+
+print(f"Data exported to {output_path}")
