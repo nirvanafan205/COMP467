@@ -1,13 +1,16 @@
 import argparse
 import csv
 import io
+import tempfile
 from PIL import Image
 import xlsxwriter
 from pymongo import MongoClient
 from moviepy.editor import VideoFileClip
-
+import os
+from frameioclient import FrameioClient
+ 
+  #  Convert  frame number to a timecode 
 def frames_to_timecode(frames, frame_rate):
-    """Convert a frame number to a timecode string based on the frame rate."""
     total_seconds = frames / frame_rate
     hours = int(total_seconds // 3600)
     minutes = int((total_seconds % 3600) // 60)
@@ -15,8 +18,8 @@ def frames_to_timecode(frames, frame_rate):
     frames = int((total_seconds - int(total_seconds)) * frame_rate)
     return f"{hours:02}:{minutes:02}:{seconds:02}:{frames:02}"
 
+# Get middle frame number from a frame range
 def get_middle_frame(start_frame, end_frame):
-    """Get the middle frame number from a frame range."""
     return start_frame + (end_frame - start_frame) // 2
 
 # MongoDB connection
@@ -48,7 +51,11 @@ if args.process:
 # Fetch data from MongoDB
 mongo_data = collection.find()
 
-# Extract relevant fields and calculate timecodes
+# Create a directory to save thumbnails
+thumbnail_dir = 'thumbnails'
+os.makedirs(thumbnail_dir, exist_ok=True)
+
+# Extract fields and calculate timecodes
 data = []
 for entry in mongo_data:
     location = entry['Location']
@@ -61,29 +68,29 @@ for entry in mongo_data:
     else:
         continue  # Skip this entry
 
-    # Check if the frame range is within the total frames of the video
+    # Check if frame range is within the total frames of the video
     if start_frame <= total_frames and end_frame <= total_frames:
         # Calculate the middle frame for thumbnail
         middle_frame = get_middle_frame(start_frame, end_frame)
         
-        # Extract the frame as an image
+        # Extract frame as an image
         frame_image = video.get_frame(middle_frame / frame_rate)
         
         # Convert to PIL image and resize
         pil_image = Image.fromarray(frame_image)
-        pil_image.thumbnail((96, 74))  # Removed Image.ANTIALIAS
+        pil_image.thumbnail((96, 74))  
 
-        # Save the image to a bytes buffer
-        img_buffer = io.BytesIO()
-        pil_image.save(img_buffer, format="JPEG")
-        img_buffer.seek(0)
+        # Save image as a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=thumbnail_dir) as temp_file:
+            pil_image.save(temp_file, format="JPEG")
+            temp_file_path = temp_file.name
 
         # Convert frames to timecode
         start_timecode = frames_to_timecode(start_frame, frame_rate)
         end_timecode = frames_to_timecode(end_frame, frame_rate)
 
-        # Append to data along with other information
-        data.append([location, frame_range, f"{start_timecode} to {end_timecode}", img_buffer])
+        # Append to data 
+        data.append([location, frame_range, f"{start_timecode} to {end_timecode}", temp_file_path])
 
 # Define headers
 headers = ["Location", "Frame Range", "Timecode Range", "Thumbnail"]
@@ -105,7 +112,7 @@ if args.output.lower() == "xlsx":
             if col_num < 3:  # Regular data
                 worksheet.write(row_num, col_num, cell_data)
             else:  # Image data
-                worksheet.insert_image(row_num, col_num, "", {'image_data': cell_data})
+                worksheet.insert_image(row_num, col_num, cell_data)
 
     workbook.close()
 else:  # Default to CSV
@@ -116,3 +123,28 @@ else:  # Default to CSV
         csv_writer.writerows(data)
 
 print(f"Data exported to {output_path}")
+
+# Initialize the Frame.io client
+TOKEN = "fio-u-_suRg2CLQTfBsRNpD9Zv-kC5yy46K7u5SHaRG_eIrXjL0MmQ5ECrmIfq2vEHVuVU"
+client = FrameioClient(TOKEN)
+
+# project ID
+project_id = "24049025-17ca-4d9a-84e5-b0741141ff99"
+
+# Fetch the project details to get the root_asset_id
+project = client.projects.get(project_id)
+root_asset_id = project['root_asset_id']
+
+# Loop through the saved thumbnails and upload them to Frame.io
+for thumbnail_path in data:
+    location, frame_range, timecode_range, thumbnail_path = thumbnail_path
+    
+    if os.path.isfile(thumbnail_path):
+        # use destination_id to upload the image
+        asset = client.assets.upload(
+            destination_id=root_asset_id,
+            filepath=thumbnail_path
+        )
+        print(f"Uploaded image for Location: {location}")
+    else:
+        print(f"File not found: {thumbnail_path}")
